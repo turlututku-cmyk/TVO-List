@@ -51,8 +51,8 @@ export default {
                             <p>{{ level.id }}</p>
                         </li>
                         <li>
-                            <div class="type-title-sm">Difficulty</div>
-                            <p>{{ level.demon }}</p>
+                            <div class="type-title-sm">Tier</div>
+                            <p>{{ level.tier || level.demon }}</p>
                         </li>
                         <li>
                             <div class="type-title-sm">Password</div>
