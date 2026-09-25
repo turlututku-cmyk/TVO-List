@@ -1,0 +1,83 @@
+name: Validate TVO List
+
+on:
+  push:
+    branches: [main]
+    paths: ["data/**", ".github/workflows/validate.yml"]
+  pull_request:
+    paths: ["data/**", ".github/workflows/validate.yml"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Check list data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate JSON files
+        run: |
+          node <<'JS'
+          const fs = require('fs');
+          const path = require('path');
+          const dir = 'data';
+          const errors = [];
+          const read = (file) => {
+            try {
+              return JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+            } catch (e) {
+              errors.push(`${file}: invalid JSON (${e.message})`);
+              return null;
+            }
+          };
+
+          // Every JSON file in data/ must parse
+          const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+          const parsed = Object.fromEntries(files.map((f) => [f, read(f)]));
+
+          // _list.json: array of unique level names, each with a data file
+          const list = parsed['_list.json'];
+          if (!Array.isArray(list)) {
+            errors.push('_list.json: must be an array of level file names');
+          } else {
+            const seen = new Set();
+            for (const name of list) {
+              if (seen.has(name)) errors.push(`_list.json: "${name}" is listed twice`);
+              seen.add(name);
+              const level = parsed[`${name}.json`];
+              if (level === undefined) {
+                errors.push(`_list.json: "${name}" has no data/${name}.json file`);
+                continue;
+              }
+              if (!level) continue;
+              for (const key of ['id', 'name', 'author', 'verifier', 'verification', 'percentToQualify', 'records']) {
+                if (!(key in level)) errors.push(`${name}.json: missing "${key}"`);
+              }
+              if (level.records && !Array.isArray(level.records)) {
+                errors.push(`${name}.json: "records" must be an array`);
+              }
+              (level.records || []).forEach((r, i) => {
+                for (const key of ['user', 'link', 'percent']) {
+                  if (!(key in r)) errors.push(`${name}.json: record #${i + 1} missing "${key}"`);
+                }
+              });
+            }
+            // Level files not referenced by _list.json (warning only)
+            for (const f of files) {
+              if (!f.startsWith('_') && !seen.has(f.replace(/\.json$/, ''))) {
+                console.log(`::warning file=data/${f}::${f} is not in _list.json`);
+              }
+            }
+          }
+
+          if (errors.length) {
+            errors.forEach((e) => console.log(`::error::${e}`));
+            console.log(`\n${errors.length} problem(s) found in the TVO List data.`);
+            process.exit(1);
+          }
+          console.log(`TVO List data OK: ${list.length} levels checked.`);
+          JS
